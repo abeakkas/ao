@@ -463,6 +463,16 @@ def _implements_common_tensor_ops(cls):
             getattr(self, t_name).shape == getattr(src, t_name).shape
             for t_name in self.tensor_data_names
         )
+        _optional_tensor_shape_match = True
+        if hasattr(self, "optional_tensor_data_names"):
+            # either both are None or both are not Tensors and the shape match
+            _optional_tensor_shape_match = all(
+                getattr(self, t_name).shape == getattr(src, t_name).shape
+                if getattr(self, t_name) is not None
+                else getattr(src, t_name) is None
+                for t_name in self.optional_tensor_data_names
+            )
+
         _attr_match = all(
             getattr(self, a_name) == getattr(src, a_name)
             for a_name in self.tensor_attribute_names
@@ -471,6 +481,7 @@ def _implements_common_tensor_ops(cls):
             type(self) == type(src)
             and self.shape == src.shape
             and _tensor_shape_match
+            and _optional_tensor_shape_match
             and _attr_match
         )
 
@@ -498,6 +509,14 @@ def _implements_common_tensor_ops(cls):
             tensors = [
                 getattr(self, name).to(device) for name in self.tensor_data_names
             ]
+            if hasattr(self, "optional_tensor_data_names"):
+                for tensor_data_name in self.optional_tensor_data_names:
+                    maybe_tensor = getattr(self, tensor_data_name)
+                    if maybe_tensor is not None:
+                        tensors.append(maybe_tensor.to(device))
+                    else:
+                        tensors.append(None)
+
             # change device
             tensor_attributes = [
                 getattr(self, attr_name) if attr_name != "device" else device
@@ -699,7 +718,14 @@ class TorchAOBaseTensor(torch.Tensor):
         if hasattr(self, "tensor_data_names") and hasattr(
             self, "tensor_attribute_names"
         ):
-            return self.tensor_data_names, [
+            tensor_data_names = self.tensor_data_names.copy()
+            if hasattr(self, "optional_tensor_data_names"):
+                for tensor_data_name in self.optional_tensor_data_names:
+                    maybe_tensor = getattr(self, tensor_data_name)
+                    if maybe_tensor is not None:
+                        tensor_data_names.append(tensor_data_name)
+
+            return tensor_data_names, [
                 getattr(self, attr) for attr in self.tensor_attribute_names
             ]
         raise NotImplementedError(
@@ -711,6 +737,12 @@ class TorchAOBaseTensor(torch.Tensor):
         cls, tensor_data_dict, tensor_attributes, outer_size, outer_stride
     ):
         tensors = [tensor_data_dict[name] for name in cls.tensor_data_names]
+        if hasattr(cls, "optional_tensor_data_names"):
+            for tensor_data_name in cls.optional_tensor_data_names:
+                if tensor_data_name in tensor_data_dict:
+                    tensors.append(tensor_data_dict[tensor_data_name])
+                else:
+                    tensors.append(None)
         return cls(*tensors, *tensor_attributes)
 
     def _apply_fn_to_data(self, fn):
@@ -718,6 +750,14 @@ class TorchAOBaseTensor(torch.Tensor):
             self, "tensor_attribute_names"
         ):
             tensors = [fn(getattr(self, attr)) for attr in self.tensor_data_names]
+            if hasattr(self, "optional_tensor_data_names"):
+                for tensor_data_name in self.optional_tensor_data_names:
+                    maybe_tensor = getattr(self, tensor_data_name)
+                    if maybe_tensor is not None:
+                        tensors.append(fn(maybe_tensor))
+                    else:
+                        tensors.append(None)
+
             tensor_attributes = [
                 getattr(self, attr) for attr in self.tensor_attribute_names
             ]
@@ -738,6 +778,12 @@ class TorchAOBaseTensor(torch.Tensor):
             repr_str += f"{self.tensor_data_names[0]}={getattr(self, self.tensor_data_names[0])}"
             for tensor_data_name in self.tensor_data_names[1:]:
                 repr_str += f", {tensor_data_name}={getattr(self, tensor_data_name)}"
+            if hasattr(self, "optional_tensor_data_names"):
+                for tensor_data_name in self.optional_tensor_data_names:
+                    repr_str += (
+                        f", {tensor_data_name}={getattr(self, tensor_data_name)}"
+                    )
+
             for tensor_attribute_name in self.tensor_attribute_names:
                 repr_str += (
                     f", {tensor_attribute_name}={getattr(self, tensor_attribute_name)}"
